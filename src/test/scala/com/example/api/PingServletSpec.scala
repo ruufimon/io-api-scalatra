@@ -1,24 +1,25 @@
 package com.example.api
 
-import cats.effect.IO
-import cats.effect.unsafe.implicits.global
 import org.scalatra.test.scalatest.ScalatraFunSuite
 
 class PingServletSpec extends ScalatraFunSuite:
   private class RecordingPingLogger extends PingLogger:
     var calls = 0
-    var logging: IO[Unit] = IO.unit
-    var readiness: IO[Unit] = IO.unit
+    var logging: () => Unit = () => ()
+    var readiness: () => Unit = () => ()
 
-    override def logPing(): IO[Unit] = logging *> IO(calls += 1)
-    override def checkReady(): IO[Unit] = readiness
+    override def logPing(): Unit =
+      logging()
+      calls += 1
+
+    override def checkReady(): Unit = readiness()
 
   private val pingLogger = new RecordingPingLogger
   addServlet(new PingServlet(pingLogger), "/*")
 
   test("GET /ping returns a healthy response"):
     val callsBeforeRequest = pingLogger.calls
-    pingLogger.logging = IO.unit
+    pingLogger.logging = () => ()
 
     get("/ping"):
       status shouldBe 200
@@ -29,14 +30,14 @@ class PingServletSpec extends ScalatraFunSuite:
 
   test("GET /ping recovers when Redis becomes available without an API restart"):
     val callsBeforeRequest = pingLogger.calls
-    pingLogger.logging = IO.raiseError(new RuntimeException("Redis unavailable"))
+    pingLogger.logging = () => throw new RuntimeException("Redis unavailable")
 
     get("/ping"):
       status shouldBe 503
       body shouldBe """{"status":"not_ready"}"""
 
     pingLogger.calls shouldBe callsBeforeRequest
-    pingLogger.logging = IO.unit
+    pingLogger.logging = () => ()
 
     get("/ping"):
       status shouldBe 200
@@ -58,14 +59,14 @@ class PingServletSpec extends ScalatraFunSuite:
     pingLogger.calls shouldBe callsBeforeRequest
 
   test("GET /ready reports readiness when Redis is available"):
-    pingLogger.readiness = IO.unit
+    pingLogger.readiness = () => ()
 
     get("/ready"):
       status shouldBe 200
       body shouldBe """{"status":"ready"}"""
 
   test("GET /ready returns 503 when Redis is unavailable"):
-    pingLogger.readiness = IO.raiseError(new RuntimeException("Redis unavailable"))
+    pingLogger.readiness = () => throw new RuntimeException("Redis unavailable")
 
     get("/ready"):
       status shouldBe 503

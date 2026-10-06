@@ -1,8 +1,9 @@
 # Scalatra Ping API
 
 A minimal Scala 3 and Scalatra service exposing health-check endpoints. Redis
-effects are represented with Cats Effect `IO`; Redis and Jetty are managed as
-`Resource` values and released safely when the application stops.
+calls use standard synchronous Scala. Startup follows a fail-fast pattern: the
+application verifies Redis with `PING` before it starts Jetty and exits if the
+required dependency is unavailable.
 
 ## Run
 
@@ -11,6 +12,12 @@ sbt run
 ```
 
 The server listens on port `8080` by default. Set `PORT` to override it.
+
+Redis must be running before the API starts:
+
+```bash
+docker compose up -d redis
+```
 
 ```bash
 curl http://localhost:8080/ping
@@ -37,7 +44,7 @@ sbt test
 
 ## Redis
 
-Start Redis with Docker Compose:
+Start Redis with Docker Compose before running the application:
 
 ```bash
 docker compose up -d redis

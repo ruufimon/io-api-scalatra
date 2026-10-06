@@ -2,21 +2,23 @@
 
 ## Current behavior
 
-The API follows the degraded-operation design. Creating the Jedis client does
-not validate the Redis connection, so Jetty can start listening while Redis is
-unavailable.
+This branch implements fail-fast startup with standard synchronous Scala. It
+creates a Jedis client, sends Redis `PING`, and only constructs and starts Jetty
+after that call succeeds. A Redis exception propagates out of `main`, causing
+the process to exit immediately.
 
 The endpoints then behave as follows:
 
-- `GET /live` returns `200` because it does not contact Redis.
+- The process never begins listening when Redis is unavailable at startup.
+- `GET /live` returns `200` after successful startup.
 - `GET /ready` attempts Redis `PING` and returns `503` with
   `{"status":"not_ready"}` when Redis is unavailable.
 - `GET /ping` attempts to append a log entry to the Redis list `ping:logs`. If
   Redis is unavailable, the Redis effect fails, no entry is written, and the
   request fails rather than returning a successful ping response.
 
-Redis effects are represented with Cats Effect `IO`. Failures are handled at
-the synchronous Scalatra boundary before rendering the HTTP response.
+No effect library is used. Dependency methods return `Unit`, resource cleanup
+uses `scala.util.Using`, and failures use ordinary exception propagation.
 
 ## Solution 1: Fail-fast startup
 
@@ -72,17 +74,13 @@ reflect the dependency failure.
 
 ## Demonstration decision
 
-Use degraded operation with strict success semantics:
+Use fail-fast startup:
 
-1. Allow Jetty to start even if Redis is unavailable.
-2. Keep `GET /live` independent from Redis.
-3. Make `GET /ready` return `503` until Redis responds to `PING`.
-4. Do not return a successful `GET /ping` response unless its Redis log entry
-   was persisted.
-5. Return `503 Service Unavailable` from `/ping` for a Redis failure.
-6. Add a bounded Redis timeout so dependency failures do not leave requests
-   waiting for too long.
+1. Construct the Redis logger before the HTTP server.
+2. Call Redis `PING` during logger creation.
+3. Let a failed `PING` escape from `main` so the process exits non-zero.
+4. Start Jetty only after Redis validation succeeds.
+5. Close the Redis client with `scala.util.Using` when the server stops.
 
-This preserves the invariant that every successful ping has a durable Redis log
-entry while allowing the process to start, report health, and recover without a
-restart.
+This keeps the startup invariant explicit: if the process is accepting HTTP
+traffic, its required Redis dependency passed validation during startup.
