@@ -70,6 +70,30 @@ reflect the dependency failure.
 | Complexity                   | Simple                                  | Requires error handling and possibly retries                |
 | Best for                     | Redis is an absolute dependency         | Independent deployments and temporary Redis outages        |
 
+### When to use fail-fast and `IO`
+
+Fail-fast and Cats Effect `IO` address different decisions. Fail-fast defines
+whether the service may start without a dependency; `IO` defines how the
+application represents, composes, and runs side effects. Either startup policy
+can be implemented with or without `IO`.
+
+| Consideration | Fail-fast startup | Cats Effect `IO` |
+|---|---|---|
+| Primary purpose | Enforce required dependencies before accepting traffic | Represent and compose effects, errors, cancellation, concurrency, and resource lifecycles |
+| Use it when | The service cannot do useful or correct work without Redis | The application has multiple effects, concurrent work, cancellation, retries, or resources that benefit from structured management |
+| Reconsider it when | The service can provide liveness, diagnostics, or unaffected features while Redis is unavailable | The program is small, synchronous, and its lifecycle is clear with ordinary Scala control flow |
+| Failure behavior | Check Redis before binding the HTTP port and exit when the check fails | Keep failures inside `IO` until the application boundary, where they can be handled or allowed to terminate the process |
+| Recovery model | Usually rely on a process or container restart | Choose explicitly: retry, degrade, return an error, or terminate |
+| Resource cleanup | Use `try`/`finally`, `Using`, or another lifecycle mechanism | Use `Resource` and scoped `use` blocks |
+| Relationship | Can run the startup check synchronously or as an `IO` before server startup | Can implement either fail-fast startup or degraded operation |
+
+| Situation | Recommended approach |
+|---|---|
+| Redis is mandatory and the service is small and synchronous | Standard Scala with fail-fast startup |
+| Redis is mandatory and the service already uses Cats Effect | Run the Redis check in `IO` before acquiring or starting the HTTP server |
+| Redis is optional or only some routes depend on it | Degraded operation; report dependency health through readiness |
+| The service needs cancellation-safe resources or concurrent background work | Use `IO`/`Resource`, then choose fail-fast or degraded startup separately |
+
 ## Demonstration decision
 
 Use degraded operation with strict success semantics:
